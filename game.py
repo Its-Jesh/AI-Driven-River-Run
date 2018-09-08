@@ -203,7 +203,7 @@ class Bullet(pygame.sprite.Sprite):
 
 class Boat(pygame.sprite.Sprite):
     m_type = "boat"
-    m_width = 30
+    m_width = 50
     m_height = 30
     m_movement = 1 #movement modifier: boat moves right if positive, left if negative
 
@@ -211,11 +211,13 @@ class Boat(pygame.sprite.Sprite):
     def __init__(self):
         pygame.sprite.Sprite.__init__(self)
         self.rect = pygame.Rect(0, 0, self.m_width, self.m_height)
+        self.image = pygame.image.load("Boat.png")
 
     #moves the boat back and forth
     def move(self, terrain):
         if(terrain.checkForLandCollisions(self)):
             self.m_movement = self.m_movement * -1 #change movement direction
+            self.turn()
         self.rect.x += self.m_movement
 
     def scroll(self):
@@ -228,10 +230,14 @@ class Boat(pygame.sprite.Sprite):
         return self
 
     def draw(self):
-        pygame.draw.rect(win, (0, 0, 0), (self.rect.x, self.rect.y, self.rect.width, self.rect.height))
+        win.blit(self.image, [self.rect.x - 30, self.rect.y - 40])
 
     def detectCollision(self, enemy):
         return self.rect.colliderect(enemy.rect)
+
+    #flips the image horizontally
+    def turn(self):
+        self.image = pygame.transform.flip(self.image, True, False)
 
 
 
