@@ -61,6 +61,10 @@ class EnemyManager:
             bomb = Bomb()
             self.enemies.append(bomb.spawn(terrain, enemyManager)) 
             self.bombCount += 1
+        if self.boatCount < self.BOAT_CAP: #if boats have not reached their spawn limit
+            boat = Boat()
+            self.enemies.append(boat.spawn(terrain, enemyManager))
+            self.boatCount += 1
 
     #desc: checks to see if an enemy has been hit by a player bullet 
     #pre: bullets should be an array of Bullets
@@ -90,7 +94,10 @@ class EnemyManager:
     #post: see desc
     def moveEnemies(self):
         for enemy in self.enemies:
-            enemy.move()
+            if enemy.m_type == "boat":
+                enemy.move(terrain) #boat moves based on terrain
+            else:
+                enemy.move()
 
     #desc: removes an enemy from self.enemies
     #pre: enemy must have member m_type
@@ -188,6 +195,41 @@ class Bullet(pygame.sprite.Sprite):
         return (self.rect.bottom <= 0)
         
     #is the bullet hitting something
+    def detectCollision(self, enemy):
+        return self.rect.colliderect(enemy.rect)
+
+
+
+
+class Boat(pygame.sprite.Sprite):
+    m_type = "boat"
+    m_width = 30
+    m_height = 30
+    m_movement = 1 #movement modifier: boat moves right if positive, left if negative
+
+    #constructor
+    def __init__(self):
+        pygame.sprite.Sprite.__init__(self)
+        self.rect = pygame.Rect(0, 0, self.m_width, self.m_height)
+
+    #moves the boat back and forth
+    def move(self, terrain):
+        if(terrain.checkForLandCollisions(self)):
+            self.m_movement = self.m_movement * -1 #change movement direction
+        self.rect.x += self.m_movement
+
+    def scroll(self):
+        self.rect.y += TERRAIN_SCROLL_SPEED
+
+    def spawn(self, terrain, enemyManager):
+        while terrain.checkForLandCollisions(self) or enemyManager.detectCollision(self):
+            self.rect.x = random.randint(0, SCREEN_WIDTH - self.rect.width)
+            self.rect.y = random.randint(0, SCREEN_HEIGHT - self.rect.height)
+        return self
+
+    def draw(self):
+        pygame.draw.rect(win, (0, 0, 0), (self.rect.x, self.rect.y, self.rect.width, self.rect.height))
+
     def detectCollision(self, enemy):
         return self.rect.colliderect(enemy.rect)
 
