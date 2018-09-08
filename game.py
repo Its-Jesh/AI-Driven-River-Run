@@ -5,10 +5,11 @@ pygame.init()
 
 #GLOBAL CONSTANTS
 SCREEN_WIDTH = 900
-SCREEN_HEIGHT = 900
+SCREEN_HEIGHT = SCREEN_WIDTH
 TILE_WIDTH = 30
-TILE_HEIGHT = 30
-TERRAIN_SCROLL_SPEED = 1
+TILE_HEIGHT = TILE_WIDTH
+TERRAIN_SCROLL_SPEED = 2
+MAX_SPAWN_ATTEMPTS = 10
 
 win = pygame.display.set_mode((SCREEN_WIDTH,SCREEN_HEIGHT))
 pygame.display.set_caption("River Run AI")
@@ -155,10 +156,15 @@ class Bomb(pygame.sprite.Sprite):
         self.rect.x = random.randint(0, SCREEN_WIDTH - self.rect.width)  #random on screeen point
         self.rect.y = random.randint(0, SCREEN_HEIGHT - self.rect.height) #random on screen point
 
+        attempts = 0
         #keep looping through until you find an x/y coordinate that will not spawn the bomb on top of land or on top of another enemy
-        while terrain.checkForLandCollisions(self) or enemyManager.detectCollision(self):
+        while (terrain.checkForLandCollisions(self) or enemyManager.detectCollision(self)) and (attempts < MAX_SPAWN_ATTEMPTS):
             self.rect.x = random.randint(0, SCREEN_WIDTH - self.rect.width)
             self.rect.y = random.randint(0, SCREEN_HEIGHT - self.rect.height)
+            attempts += 1
+
+        if(attempts >= MAX_SPAWN_ATTEMPTS): #if enemy failed to find a place to spawn, through it below the screen so it will despawn
+            self.rect.y = SCREEN_HEIGHT + 1000
 
         return self
 
@@ -267,12 +273,34 @@ class TerrainTile(pygame.sprite.Sprite):
 class TerrainManager:
     tileMatrix = []
     scrollSpeed = TERRAIN_SCROLL_SPEED
-    terrainTILE_WIDTH = SCREEN_WIDTH // TILE_WIDTH #width of terrain in tiles
+    terrainTileWidth = SCREEN_WIDTH // TILE_WIDTH #width of terrain in tiles
+    terrainTileHeight = terrainTileWidth
+    CHUNK_HEIGHT = terrainTileHeight
+    carveCenterTile = (SCREEN_WIDTH // TILE_WIDTH) //2
+    numOfGenerationSteps = 6
+    deathLimit = 4
+    birthLimit = 3
+    chanceToStartAlive = 0.35
 
     def __init__(self):
-        for i in range(0,self.terrainTILE_WIDTH + 1):
+        for i in range(0,self.terrainTileWidth + 1):
             self.tileMatrix.append([])
         self.generateIntialTerrain()
+
+
+
+    def carve(self, matrixRow):
+        for i in range(-3,4):
+            currentX = self.tileMatrix[matrixRow][self.carveCenterTile + i].rect.x
+            currentY = self.tileMatrix[matrixRow][self.carveCenterTile + i].rect.y
+            self.tileMatrix[matrixRow][self.carveCenterTile + i] = TerrainTile(currentX, currentY, (0,0,200), TILE_WIDTH, False)
+
+
+        self.carveCenterTile += random.randint(-1,1)
+        if(self.carveCenterTile >= (self.terrainTileWidth - 4)):
+            self.carveCenterTile = self.terrainTileWidth - 5
+        elif(self.carveCenterTile <= 4):
+            self.carveCenterTile = 5
 
 
     def generateIntialTerrain(self):
@@ -281,17 +309,19 @@ class TerrainManager:
         row = 0
 
         #build terrain from bottom up with one extra row off screen
-        for i in range(self.terrainTILE_WIDTH**2 + self.terrainTILE_WIDTH):
+        for i in range(self.terrainTileWidth**2 + self.terrainTileWidth):
             if x < (3 * TILE_WIDTH) or x > (SCREEN_WIDTH - (4 * TILE_WIDTH)): #3 tiles of land on each side
                 self.tileMatrix[row].append(TerrainTile(x, y, (0,random.randint(200,255),0), TILE_WIDTH, True))
             else:
                 self.tileMatrix[row].append(TerrainTile(x, y, (0,0,random.randint(200,255)), TILE_WIDTH, False))
-
+            
             x += TILE_WIDTH
             if x == SCREEN_WIDTH:
+                self.carve(row)
                 row += 1
                 x = 0
                 y -= TILE_HEIGHT
+
 
     #draws all tiles
     def draw(self):
@@ -306,34 +336,132 @@ class TerrainManager:
                 self.tileMatrix[i][j].setY(self.tileMatrix[i][j].getY() + self.scrollSpeed) #increase y pos of each tile by scrollSpeed
 
         if self.tileMatrix[-1][0].rect.top > 0: #if the top of the last terrain row enters the screen a new chunk must be generated
-            self.generateChunk()
+            self.generateChunk(self.generateNoiseMap())
 
         if self.tileMatrix[0][0].rect.top >= SCREEN_HEIGHT: #delete terrain rows that are no longer on the screen
             self.tileMatrix.pop(0)
 
 
-    #generates a chunk of terrain
-    def generateChunk(self):
-        for i in range(10):
-            self.generateRow()
+    def generateChunk(self, noiseMap):
 
-    #generates a random terrain row
-    def generateRow(self):
         tempList = []
-        numOfSideLandBlocks = random.randint(1,3)
-        islandWidth = random.randint(0,3)
 
-        for i in range(0, SCREEN_WIDTH // TILE_WIDTH):
-            if i < numOfSideLandBlocks: #generate left side land mass 
-                tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True))
-            elif (i >= ((SCREEN_WIDTH//TILE_WIDTH) - numOfSideLandBlocks)): #generate right side land mass
-                tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True))
-            elif islandWidth > 0 and i >= ((SCREEN_WIDTH // TILE_WIDTH)//2) - islandWidth and i <= ((SCREEN_WIDTH // TILE_WIDTH)//2) + islandWidth: #generate middle land mass
-                tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True))
-            else: #generate water
-                tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,0,random.randint(200,255)), TILE_WIDTH, False))
+        for noiseRow in noiseMap:
+            tempList = []
+            for c in range(len(noiseRow)):
+                if noiseRow[c]:
+                    tempList.append(TerrainTile(c*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,200,0), TILE_WIDTH, True))
+                else:
+                    tempList.append(TerrainTile(c*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,0,200), TILE_WIDTH, False))
+                    
             
-        self.tileMatrix.append(tempList)
+            self.tileMatrix.append(tempList)
+            self.carve(len(self.tileMatrix) - 1)
+
+        # tempList = []
+        
+        # for i in range(20):
+        #     tempList = []
+        #     for x in range(SCREEN_WIDTH//TILE_WIDTH):
+        #         tile = TerrainTile(x*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True)
+        #         tempList.append(tile)
+        #     self.tileMatrix.append(tempList)
+        #     self.carve(len(self.tileMatrix) - 1)
+            
+
+    def generateNoiseMap(self):
+        print("noiseMap()")
+        noiseMap = []
+        for i in range(self.CHUNK_HEIGHT): #add an empty list for each row
+            noiseMap.append([])
+        for x in noiseMap:
+            for i in range(self.terrainTileWidth): #make every rows column values false
+                x.append(False)
+
+        noiseMap = self.initialiseMap(noiseMap)  #randomly make some cells alive
+
+        for i in range(self.numOfGenerationSteps):
+            noiseMap = self.doSimulationStep(noiseMap) #generate the "cells" aka islands
+
+        return noiseMap
+
+
+    def doSimulationStep(self, oldNoiseMap):
+        newNoiseMap = []
+        for i in range(self.CHUNK_HEIGHT):
+            newNoiseMap.append([])
+        for x in newNoiseMap:
+            for i in range(self.terrainTileWidth): #make every row's column values false
+                x.append(False)
+        
+        for x in range(len(oldNoiseMap)): #for each row
+            for y in range(len(oldNoiseMap[0])): #for each column
+                nbs = self.countAliveNeighbors(oldNoiseMap, x, y)
+                if(oldNoiseMap[x][y]):
+                    if(nbs < self.deathLimit):
+                        newNoiseMap[x][y] = False
+                    else:
+                        newNoiseMap[x][y] = True
+                else:
+                    if(nbs > self.birthLimit):
+                        newNoiseMap[x][y] = True
+                    else:
+                        newNoiseMap[x][y] = False
+
+        return newNoiseMap
+
+
+
+    def countAliveNeighbors(self,map, x, y):
+        count = 0
+        for i in range(-1,2):
+            for j in range(-1,2):
+                neighbor_x = x+i
+                neighbor_y = y+j
+
+                if(i == 0 and j == 0):
+                    dummy = 1
+                elif(neighbor_x < 0 or neighbor_x >= len(map)):
+                    count += 0
+                elif(neighbor_y < 0 or neighbor_y >= len(map[0])):
+                    count += 1
+                elif(map[neighbor_x][neighbor_y]):
+                    count += 1
+
+        return count
+
+
+    def initialiseMap(self,map):
+        for x in range(self.CHUNK_HEIGHT):
+            for y in range(self.terrainTileWidth):
+                if(random.random() < self.chanceToStartAlive):
+                    map[x][y] = True
+        
+        return map
+
+
+    # #generates a chunk of terrain
+    # def generateChunk(self):
+    #     for i in range(20):
+    #         self.generateRow()
+
+    # #generates a random terrain row
+    # def generateRow(self):
+    #     tempList = []
+    #     numOfSideLandBlocks = random.randint(1,3)
+    #     islandWidth = random.randint(0,3)
+
+    #     for i in range(0, SCREEN_WIDTH // TILE_WIDTH):
+    #         if i < numOfSideLandBlocks: #generate left side land mass 
+    #             tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True))
+    #         elif (i >= ((SCREEN_WIDTH//TILE_WIDTH) - numOfSideLandBlocks)): #generate right side land mass
+    #             tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True))
+    #         elif islandWidth > 0 and i >= ((SCREEN_WIDTH // TILE_WIDTH)//2) - islandWidth and i <= ((SCREEN_WIDTH // TILE_WIDTH)//2) + islandWidth: #generate middle land mass
+    #             tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,random.randint(200,255),0), TILE_WIDTH, True))
+    #         else: #generate water
+    #             tempList.append(TerrainTile(i*TILE_WIDTH, self.tileMatrix[-1][0].rect.y - TILE_HEIGHT, (0,0,random.randint(200,255)), TILE_WIDTH, False))
+            
+    #     self.tileMatrix.append(tempList)
 
 
     
@@ -344,7 +472,7 @@ class TerrainManager:
         collisionDetected = False
         for r in range(len(self.tileMatrix)):
             for c in range(len(self.tileMatrix[r])):
-                if self.tileMatrix[r][c].isLand and self.tileMatrix[r][c].rect.colliderect(other.rect): #for each tile, if tile is land and is colliding with other
+                if self.tileMatrix[r][c].isLand and self.tileMatrix[r][c].rect.colliderect(other.rect): #for each tile, if tile is land and is colliding with "other"
                     collisionDetected = True
                     break
         
